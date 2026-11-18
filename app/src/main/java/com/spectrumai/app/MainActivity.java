@@ -1,0 +1,14 @@
+package com.spectrumai.app;
+import android.app.*;import android.os.*;import android.graphics.Color;import android.graphics.Typeface;import android.graphics.drawable.GradientDrawable;import android.content.Intent;import android.net.Uri;import android.view.Gravity;import android.widget.*;
+public class MainActivity extends Activity {
+ int bg=Color.rgb(10,13,22),panel=Color.rgb(20,26,40),blue=Color.rgb(91,140,255); EditText query;
+ public void onCreate(Bundle b){super.onCreate(b);getWindow().setStatusBarColor(bg);getWindow().setNavigationBarColor(bg);ScrollView s=new ScrollView(this);LinearLayout r=new LinearLayout(this);r.setOrientation(1);r.setPadding(dp(22),dp(34),dp(22),dp(24));r.setBackgroundColor(bg);s.addView(r);
+ TextView h=new TextView(this);h.setText("SPECTRUM AI");h.setTextColor(-1);h.setTextSize(27);h.setTypeface(null,Typeface.BOLD);r.addView(h);
+ TextView sub=new TextView(this);sub.setText("Поиск по открытым источникам");sub.setTextColor(0xff9ba8be);sub.setTextSize(14);r.addView(sub);
+ TextView note=new TextView(this);note.setText("Только публичная информация. Нет доступа к закрытым базам, банкам или государственным аккаунтам.");note.setTextColor(0xffb7c3d8);note.setTextSize(12);note.setPadding(dp(14),dp(12),dp(14),dp(12));note.setBackground(round(panel));LinearLayout.LayoutParams n=new LinearLayout.LayoutParams(-1,-2);n.topMargin=dp(24);r.addView(note,n);
+ TextView l=new TextView(this);l.setText("Что ищем?");l.setTextColor(-1);l.setTextSize(16);l.setTypeface(null,Typeface.BOLD);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=dp(26);r.addView(l,lp);
+ query=new EditText(this);query.setSingleLine(true);query.setTextColor(-1);query.setHintTextColor(0xff8290a5);query.setHint("Имя, компания, сайт или тема");query.setPadding(dp(15),0,dp(15),0);query.setBackground(round(panel));LinearLayout.LayoutParams qp=new LinearLayout.LayoutParams(-1,dp(54));qp.topMargin=dp(12);r.addView(query,qp);
+ add(r,"Искать в интернете","https://www.google.com/search?q=");add(r,"Искать новости","https://www.google.com/search?tbm=nws&q=");add(r,"Проверить домен","https://www.google.com/search?q=");setContentView(s); }
+ void add(LinearLayout r,String title,String base){Button b=new Button(this);b.setText(title);b.setTextColor(-1);b.setAllCaps(false);b.setBackground(round(blue));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(52));p.topMargin=dp(12);r.addView(b,p);b.setOnClickListener(v->{String q=query.getText().toString().trim();if(q.isEmpty()){query.setError("Введите запрос");return;}startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(base+Uri.encode(q))));});}
+ GradientDrawable round(int c){GradientDrawable d=new GradientDrawable();d.setColor(c);d.setCornerRadius(dp(12));return d;} int dp(int x){return (int)(x*getResources().getDisplayMetrics().density+0.5f);}
+}
