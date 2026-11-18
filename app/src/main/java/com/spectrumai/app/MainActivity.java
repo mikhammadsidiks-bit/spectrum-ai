@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
         modeRow2=new LinearLayout(this); modeRow2.setOrientation(0); root.addView(modeRow2,params(-1,-2,6));
         addMode("URL","URL",modeRow2); addMode("ТЕЛЕФОН","PHONE",modeRow2); addMode("EMAIL","EMAIL",modeRow2); addMode("TELEGRAM","TELEGRAM",modeRow2);
         input=new EditText(this); input.setSingleLine(true); input.setTextColor(Color.WHITE); input.setHintTextColor(0xff71839e);
-        input.setTextSize(15); input.setPadding(dp(15),0,dp(15),0); input.setHint("example.com");
+        input.setTextSize(15); input.setPadding(dp(15),0,dp(15),0); input.setHint(modeHint());
         input.setBackground(round(PANEL2,dp(13))); root.addView(input,params(-1,dp(54),14));
         Button run=button("ЗАПУСТИТЬ АНАЛИЗ"); root.addView(run,params(-1,dp(52),12));
         run.setOnClickListener(v->startScan());
@@ -75,32 +75,47 @@ public class MainActivity extends Activity {
     private void startScan() {
         String raw=input.getText().toString().trim();
         if(raw.isEmpty()){input.setError("Введи значение для проверки");return;}
-        if(mode.equals("AUTO")) {
-            String low=raw.toLowerCase();
-            if(low.startsWith("@")||low.startsWith("https://t.me/")) mode="TELEGRAM";
-            else if(android.util.Patterns.EMAIL_ADDRESS.matcher(raw).matches()) mode="EMAIL";
-            else if(raw.matches("^\\+?[0-9() .-]{7,}$")) mode="PHONE";
-            else if(raw.matches("(?i)^[0-9a-f:.]{3,}$") && raw.contains(":")) mode="IP";
-            else if(low.startsWith("http://")||low.startsWith("https://")) mode="URL";
-            else if(raw.matches("(?i)^[a-z0-9.-]+\\.[a-z]{2,}(/.*)?$")) mode="DOMAIN";
-            else {input.setError("Не удалось определить тип. Выбери модуль вручную.");return;}
-            refreshModes();
-        }
+        final String selectedMode=mode.equals("AUTO")?detectMode(raw):mode;
+        if(selectedMode==null){input.setError("Не удалось определить тип. Выбери модуль вручную.");return;}
         String target=raw;
-        if(mode.equals("PHONE")){checkPhone(raw);return;}
-        if(mode.equals("EMAIL")){checkEmail(raw);return;}
-        if(mode.equals("TELEGRAM")){checkTelegram(raw);return;}
-        if(mode.equals("URL")) { try { if(!raw.startsWith("http")) raw="https://"+raw; target=new URL(raw).getHost(); if(target.isEmpty()) throw new Exception(); } catch(Exception e){input.setError("Проверь URL");return;} }
-        if(mode.equals("DOMAIN")) { target=target.replaceFirst("^https?://","").split("/")[0].split(":")[0]; if(!target.matches("(?i)[a-z0-9.-]+\\.[a-z]{2,}")){input.setError("Введи корректный домен");return;} }
-        if(mode.equals("IP") && !target.matches("[0-9a-fA-F:.]+")){input.setError("Введи IPv4 или IPv6");return;}
-        final String q=target, original=raw;
+        if(selectedMode.equals("PHONE")){checkPhone(raw);return;}
+        if(selectedMode.equals("EMAIL")){checkEmail(raw);return;}
+        if(selectedMode.equals("TELEGRAM")){checkTelegram(raw);return;}
+        if(selectedMode.equals("URL")) {
+            try { if(!raw.matches("(?i)^https?://.*")) raw="https://"+raw; URL parsed=new URL(raw); target=parsed.getHost(); if(target.isEmpty()) throw new Exception(); }
+            catch(Exception e){input.setError("Проверь URL");return;}
+        }
+        if(selectedMode.equals("DOMAIN")) {
+            target=target.replaceFirst("(?i)^https?://","").split("/")[0].split(":")[0].toLowerCase();
+            if(!target.matches("(?i)^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\\.[a-z]{2,}$")){input.setError("Введи корректный домен");return;}
+        }
+        if(selectedMode.equals("IP") && !isIpAddress(target)){input.setError("Введи корректный IPv4 или IPv6");return;}
+        final String q=target, original=raw, scanMode=selectedMode;
         results.removeAllViews(); status.setText("АНАЛИЗ ВЫПОЛНЯЕТСЯ…");
         addCard("ЦЕЛЬ",q,"Проверка через открытые технические источники");
         worker.execute(()->{
-            if(mode.equals("IP")) scanIp(q); else scanDomain(q, original);
+            if(scanMode.equals("IP")) scanIp(q); else scanDomain(q, original);
         });
     }
 
+    private String detectMode(String raw) {
+        String low=raw.toLowerCase();
+        if(low.startsWith("@")||low.startsWith("https://t.me/")||low.startsWith("http://t.me/")) return "TELEGRAM";
+        if(android.util.Patterns.EMAIL_ADDRESS.matcher(raw).matches()) return "EMAIL";
+        if(raw.matches("(?i)^[0-9a-f:.]{3,}$") && raw.contains(":") || raw.matches("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$")) return "IP";
+        String digits=raw.replaceAll("[^0-9]","");
+        if(raw.matches("^\\+?[0-9() .-]{7,}$") && digits.length()>=7 && digits.length()<=15) return "PHONE";
+        if(low.startsWith("http://")||low.startsWith("https://")) return "URL";
+        if(raw.matches("(?i)^[a-z0-9.-]+\\.[a-z]{2,}(/.*)?$")) return "DOMAIN";
+        return null;
+    }
+
+    private boolean isIpAddress(String value) {
+        try {
+            java.net.InetAddress address=java.net.InetAddress.getByName(value);
+            return address instanceof java.net.Inet4Address || (address instanceof java.net.Inet6Address && value.contains(":"));
+        } catch(Exception e) { return false; }
+    }
 
     private void checkPhone(String raw){
         try{
@@ -148,7 +163,7 @@ public class MainActivity extends Activity {
             try { JSONArray ent=rdap.optJSONArray("entities"); if(ent!=null) for(int i=0;i<ent.length();i++){JSONArray roles=ent.optJSONObject(i).optJSONArray("roles"); if(roles!=null&&roles.toString().contains("registrar")){registrar=ent.optJSONObject(i).optString("handle","Данные доступны");break;}}}catch(Exception ignored){}
             addResult("RDAP / WHOIS","Регистратор: "+registrar+"\nСоздан: "+created+"\nИстекает: "+expires+"\nDNS: "+state,"https://rdap.org/domain/"+enc(domain));
         } else addResult("RDAP / WHOIS","Сервис не вернул данные. Возможно, домен не поддерживается или временно недоступен.", "https://rdap.org/domain/"+enc(domain));
-        for(String type:new String[]{"A","AAAA","MX","NS","TXT"}) {
+        for(String type:new String[]{"A","AAAA","MX","NS","TXT","CAA","SOA"}) {
             JSONObject dns=getJson("https://dns.google/resolve?name="+enc(domain)+"&type="+type);
             StringBuilder value=new StringBuilder();
             if(dns!=null){JSONArray ans=dns.optJSONArray("Answer");if(ans!=null)for(int i=0;i<ans.length();i++){JSONObject a=ans.optJSONObject(i);if(value.length()>0)value.append("\n");value.append(a.optString("data"));}}
@@ -161,7 +176,24 @@ public class MainActivity extends Activity {
         String scanUrl="https://urlscan.io/api/v1/search/?q=domain:"+enc(domain);
         JSONObject scan=getJson(scanUrl);
         if(scan!=null){JSONArray arr=scan.optJSONArray("results");StringBuilder b=new StringBuilder("Публичных сканов: "+(arr==null?0:arr.length()));if(arr!=null)for(int i=0;i<Math.min(arr.length(),5);i++){JSONObject x=arr.optJSONObject(i);JSONObject page=x.optJSONObject("page");b.append("\n• ").append(page==null?x.optString("_id"):page.optString("url")).append("\n  ").append(x.optString("_id"));}addResult("URLSCAN.IO",""+b,scanUrl);}else addResult("URLSCAN.IO","Публичный поиск сканов недоступен или вернул ошибку.", "https://urlscan.io/search/#domain:"+enc(domain));
+        inspectWebHeaders(domain);
         completeScan();
+    }
+
+    private void inspectWebHeaders(String domain) {
+        HttpURLConnection c=null;
+        try {
+            c=(HttpURLConnection)new URL("https://"+domain).openConnection();
+            c.setRequestMethod("HEAD"); c.setConnectTimeout(8000); c.setReadTimeout(8000);
+            c.setInstanceFollowRedirects(true); c.setRequestProperty("User-Agent","SPECTRUM-AI-Android/1.3");
+            int code=c.getResponseCode();
+            StringBuilder b=new StringBuilder("HTTPS status: ").append(code);
+            String[] headers={"Strict-Transport-Security","Content-Security-Policy","X-Frame-Options","X-Content-Type-Options","Referrer-Policy","Permissions-Policy"};
+            for(String h:headers) b.append("\\n").append(h).append(": ").append(c.getHeaderField(h)==null?"не задан":c.getHeaderField(h));
+            addResult("WEB SECURITY HEADERS",b.toString(),"https://"+domain);
+        } catch(Exception e) {
+            addResult("WEB SECURITY HEADERS","Не удалось получить HTTPS-заголовки. Сайт может не поддерживать HTTPS или блокировать HEAD-запрос.","https://"+domain);
+        } finally { if(c!=null)c.disconnect(); }
     }
 
     private void scanIp(String ip) {
@@ -180,7 +212,7 @@ public class MainActivity extends Activity {
     private JSONObject getJson(String address){String s=getText(address);if(s==null)return null;try{return new JSONObject(s);}catch(Exception e){return null;}}
     private String getText(String address){
         HttpURLConnection c=null;
-        try{c=(HttpURLConnection)new URL(address).openConnection();c.setRequestMethod("GET");c.setConnectTimeout(10000);c.setReadTimeout(12000);c.setRequestProperty("User-Agent","SPECTRUM-AI-Android/1.1");c.setRequestProperty("Accept","application/json, text/plain, */*");int code=c.getResponseCode();if(code<200||code>=300)return null;BufferedReader r=new BufferedReader(new InputStreamReader(c.getInputStream()));StringBuilder b=new StringBuilder();String line;while((line=r.readLine())!=null)b.append(line);r.close();return b.toString();}catch(Exception e){return null;}finally{if(c!=null)c.disconnect();}
+        try{c=(HttpURLConnection)new URL(address).openConnection();c.setRequestMethod("GET");c.setConnectTimeout(10000);c.setReadTimeout(12000);c.setRequestProperty("User-Agent","SPECTRUM-AI-Android/1.3");c.setRequestProperty("Accept","application/json, text/plain, */*");int code=c.getResponseCode();if(code<200||code>=300)return null;BufferedReader r=new BufferedReader(new InputStreamReader(c.getInputStream()));StringBuilder b=new StringBuilder();String line;while((line=r.readLine())!=null)b.append(line);r.close();return b.toString();}catch(Exception e){return null;}finally{if(c!=null)c.disconnect();}
     }
     private void addResult(String heading,String body,String link){ui.post(()->addCard(heading,body,link));}
     private void completeScan(){ui.post(()->status.setText("АНАЛИЗ ЗАВЕРШЁН · ПРОВЕРЬ ИСТОЧНИКИ"));}
