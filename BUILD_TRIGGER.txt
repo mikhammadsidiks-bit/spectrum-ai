@@ -1,1 +1,1 @@
-SPECTRUM AI 1.1 public OSINT modules build
+SPECTRUM AI 1.2 build trigger
