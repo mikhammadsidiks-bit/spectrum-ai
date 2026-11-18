@@ -104,7 +104,7 @@ public class MainActivity extends Activity {
         String scanUrl="https://urlscan.io/api/v1/search/?q=domain:"+enc(domain);
         JSONObject scan=getJson(scanUrl);
         if(scan!=null){JSONArray arr=scan.optJSONArray("results");StringBuilder b=new StringBuilder("Публичных сканов: "+(arr==null?0:arr.length()));if(arr!=null)for(int i=0;i<Math.min(arr.length(),5);i++){JSONObject x=arr.optJSONObject(i);JSONObject page=x.optJSONObject("page");b.append("\n• ").append(page==null?x.optString("_id"):page.optString("url")).append("\n  ").append(x.optString("_id"));}addResult("URLSCAN.IO",""+b,scanUrl);}else addResult("URLSCAN.IO","Публичный поиск сканов недоступен или вернул ошибку.", "https://urlscan.io/search/#domain:"+enc(domain));
-        finish();
+        completeScan();
     }
 
     private void scanIp(String ip) {
@@ -117,7 +117,7 @@ public class MainActivity extends Activity {
         else addResult("IP RDAP","Данные реестра недоступны.","https://rdap.org/ip/"+enc(ip));
         JSONObject dns=getJson("https://dns.google/resolve?name="+enc(ip)+"&type=PTR");
         addResult("REVERSE DNS",dns==null?"Нет ответа DNS":dns.optJSONArray("Answer")==null?"PTR-запись не найдена":dns.optJSONArray("Answer").toString(),"https://dns.google/");
-        finish();
+        completeScan();
     }
 
     private JSONObject getJson(String address){String s=getText(address);if(s==null)return null;try{return new JSONObject(s);}catch(Exception e){return null;}}
@@ -126,7 +126,7 @@ public class MainActivity extends Activity {
         try{c=(HttpURLConnection)new URL(address).openConnection();c.setRequestMethod("GET");c.setConnectTimeout(10000);c.setReadTimeout(12000);c.setRequestProperty("User-Agent","SPECTRUM-AI-Android/1.1");c.setRequestProperty("Accept","application/json, text/plain, */*");int code=c.getResponseCode();if(code<200||code>=300)return null;BufferedReader r=new BufferedReader(new InputStreamReader(c.getInputStream()));StringBuilder b=new StringBuilder();String line;while((line=r.readLine())!=null)b.append(line);r.close();return b.toString();}catch(Exception e){return null;}finally{if(c!=null)c.disconnect();}
     }
     private void addResult(String heading,String body,String link){ui.post(()->addCard(heading,body,link));}
-    private void finish(){ui.post(()->status.setText("АНАЛИЗ ЗАВЕРШЁН · ПРОВЕРЬ ИСТОЧНИКИ"));}
+    private void completeScan(){ui.post(()->status.setText("АНАЛИЗ ЗАВЕРШЁН · ПРОВЕРЬ ИСТОЧНИКИ"));}
     private void addCard(String heading,String body,String link){
         LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setPadding(dp(15),dp(13),dp(15),dp(13));card.setBackground(round(PANEL,dp(13)));
         TextView h=label(heading,11,CYAN,true);card.addView(h);
