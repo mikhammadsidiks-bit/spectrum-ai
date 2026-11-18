@@ -171,8 +171,22 @@ public class MainActivity extends Activity {
         }
         String certUrl="https://crt.sh/?q=%25."+enc(domain)+"&output=json";
         String certs=getText(certUrl);
-        if(certs!=null) try {JSONArray arr=new JSONArray(certs);StringBuilder b=new StringBuilder("Найдено записей сертификатов: "+arr.length());for(int i=0;i<Math.min(arr.length(),8);i++){JSONObject c=arr.optJSONObject(i);b.append("\n• ").append(c.optString("name_value","")).append(" — ").append(c.optString("not_before",""));}addResult("SSL / CERTIFICATE TRANSPARENCY",b.toString(),certUrl);}catch(Exception e){addResult("SSL / CERTIFICATE TRANSPARENCY","Не удалось разобрать ответ сервиса.",certUrl);}
-        else addResult("SSL / CERTIFICATE TRANSPARENCY","Сервис временно недоступен.",certUrl);
+        if(certs!=null) try {
+            JSONArray arr=new JSONArray(certs);
+            java.util.LinkedHashSet<String> hosts=new java.util.LinkedHashSet<>();
+            for(int i=0;i<arr.length();i++){
+                String names=arr.optJSONObject(i).optString("name_value","");
+                for(String host:names.split("\n")){
+                    host=host.trim().toLowerCase().replace("*.","");
+                    if(host.endsWith("."+domain)||host.equals(domain)) hosts.add(host);
+                }
+            }
+            StringBuilder b=new StringBuilder("Записей сертификатов: ").append(arr.length()).append("\nУникальных публичных имён: ").append(hosts.size());
+            int shown=0; for(String host:hosts){if(shown++>=30)break;b.append("\n• ").append(host);}
+            addResult("SSL / SUBDOMAINS",b.toString(),certUrl);
+        }catch(Exception e){addResult("SSL / SUBDOMAINS","Ответ сервиса получен, но его не удалось разобрать.",certUrl);}
+        else addResult("SSL / SUBDOMAINS","Сервис временно недоступен.",certUrl);
+        searchPublicMentions(domain);
         String scanUrl="https://urlscan.io/api/v1/search/?q=domain:"+enc(domain);
         JSONObject scan=getJson(scanUrl);
         if(scan!=null){JSONArray arr=scan.optJSONArray("results");StringBuilder b=new StringBuilder("Публичных сканов: "+(arr==null?0:arr.length()));if(arr!=null)for(int i=0;i<Math.min(arr.length(),5);i++){JSONObject x=arr.optJSONObject(i);JSONObject page=x.optJSONObject("page");b.append("\n• ").append(page==null?x.optString("_id"):page.optString("url")).append("\n  ").append(x.optString("_id"));}addResult("URLSCAN.IO",""+b,scanUrl);}else addResult("URLSCAN.IO","Публичный поиск сканов недоступен или вернул ошибку.", "https://urlscan.io/search/#domain:"+enc(domain));
@@ -184,16 +198,50 @@ public class MainActivity extends Activity {
         HttpURLConnection c=null;
         try {
             c=(HttpURLConnection)new URL("https://"+domain).openConnection();
-            c.setRequestMethod("HEAD"); c.setConnectTimeout(8000); c.setReadTimeout(8000);
-            c.setInstanceFollowRedirects(true); c.setRequestProperty("User-Agent","SPECTRUM-AI-Android/1.3");
+            c.setRequestMethod("GET"); c.setConnectTimeout(10000); c.setReadTimeout(10000);
+            c.setInstanceFollowRedirects(true); c.setRequestProperty("User-Agent","Mozilla/5.0 (compatible; SPECTRUM-AI/1.4)");
             int code=c.getResponseCode();
-            StringBuilder b=new StringBuilder("HTTPS status: ").append(code);
+            StringBuilder b=new StringBuilder("HTTP status: ").append(code);
+            b.append("\nИтоговый URL: ").append(c.getURL());
+            String server=c.getHeaderField("Server"), powered=c.getHeaderField("X-Powered-By"), type=c.getContentType();
+            b.append("\nServer: ").append(server==null?"не раскрывается":server);
+            b.append("\nX-Powered-By: ").append(powered==null?"не раскрывается":powered);
+            b.append("\nContent-Type: ").append(type==null?"не указан":type);
             String[] headers={"Strict-Transport-Security","Content-Security-Policy","X-Frame-Options","X-Content-Type-Options","Referrer-Policy","Permissions-Policy"};
-            for(String h:headers) b.append("\\n").append(h).append(": ").append(c.getHeaderField(h)==null?"не задан":c.getHeaderField(h));
-            addResult("WEB SECURITY HEADERS",b.toString(),"https://"+domain);
+            int secure=0;
+            for(String h:headers){String value=c.getHeaderField(h);if(value!=null)secure++;b.append("\n").append(h).append(": ").append(value==null?"не задан":value);}
+            b.append("\nЗаголовков безопасности: ").append(secure).append("/").append(headers.length);
+            String title="не удалось определить";
+            java.io.InputStream stream=(code>=200&&code<400)?c.getInputStream():c.getErrorStream();
+            if(stream!=null){
+                BufferedReader reader=new BufferedReader(new InputStreamReader(stream));
+                StringBuilder html=new StringBuilder();String line;int limit=0;
+                while((line=reader.readLine())!=null&&limit<120){html.append(line).append(' ');limit++;}
+                reader.close();
+                java.util.regex.Matcher m=java.util.regex.Pattern.compile("<title[^>]*>(.*?)</title>",java.util.regex.Pattern.CASE_INSENSITIVE|java.util.regex.Pattern.DOTALL).matcher(html);
+                if(m.find())title=android.text.Html.fromHtml(m.group(1),android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim();
+            }
+            b.append("\nЗаголовок страницы: ").append(title);
+            addResult("САЙТ / ТЕХНОЛОГИИ / ЗАЩИТА",b.toString(),"https://"+domain);
         } catch(Exception e) {
-            addResult("WEB SECURITY HEADERS","Не удалось получить HTTPS-заголовки. Сайт может не поддерживать HTTPS или блокировать HEAD-запрос.","https://"+domain);
+            addResult("САЙТ / ТЕХНОЛОГИИ / ЗАЩИТА","HTTPS-запрос не удался: "+e.getClass().getSimpleName()+". Сайт может быть недоступен или блокировать автоматические запросы.","https://"+domain);
         } finally { if(c!=null)c.disconnect(); }
+    }
+
+    private void searchPublicMentions(String domain) {
+        String query="\""+domain+"\"";
+        String searchUrl="https://html.duckduckgo.com/html/?q="+enc(query);
+        String html=getText(searchUrl);
+        if(html==null){addResult("ПУБЛИЧНЫЕ УПОМИНАНИЯ","Поисковый сервис не ответил. Открой ручной поиск по ссылке.","https://duckduckgo.com/?q="+enc(query));return;}
+        java.util.regex.Matcher links=java.util.regex.Pattern.compile("class=\"result__a\"[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>",java.util.regex.Pattern.CASE_INSENSITIVE|java.util.regex.Pattern.DOTALL).matcher(html);
+        StringBuilder out=new StringBuilder();int count=0;
+        while(links.find()&&count<8){
+            String href=android.text.Html.fromHtml(links.group(1),android.text.Html.FROM_HTML_MODE_LEGACY).toString();
+            String title=android.text.Html.fromHtml(links.group(2),android.text.Html.FROM_HTML_MODE_LEGACY).toString().replaceAll("<[^>]+>","").trim();
+            if(!href.isEmpty()){out.append("• ").append(title).append("\n").append(href).append("\n");count++;}
+        }
+        if(count==0)out.append("Поисковик не предоставил структурированные результаты.");
+        addResult("ПУБЛИЧНЫЕ УПОМИНАНИЯ","Результатов: "+count+"\n"+out.toString(),"https://duckduckgo.com/?q="+enc(query));
     }
 
     private void scanIp(String ip) {
