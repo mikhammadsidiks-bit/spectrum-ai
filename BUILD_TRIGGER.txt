@@ -1,1 +1,1 @@
-SPECTRUM AI 1.2 build trigger
+SPECTRUM AI auto-detect build
