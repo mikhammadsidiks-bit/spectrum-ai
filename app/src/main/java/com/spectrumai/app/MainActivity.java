@@ -58,7 +58,7 @@ public class MainActivity extends Activity {
         run.setOnClickListener(v->startScan());
         status=label("ГОТОВ К ПРОВЕРКЕ",11,CYAN,true); root.addView(status,params(-1,-2,18));
         results=new LinearLayout(this); results.setOrientation(1); root.addView(results,params(-1,-2,10));
-        TextView footer=label("Источники: RDAP · Google DNS · crt.sh · ipwho.is · urlscan.io\nТелефон проверяется локально, Telegram — только публичная ссылка.",11,MUTED,false);
+        TextView footer=label("Каждый результат сопровождается источником и прямой ссылкой. Список может быть неполным, если внешний сервис ограничивает выдачу.\nТелефон проверяется локально, Telegram — только публичная ссылка.",11,MUTED,false);
         root.addView(footer,params(-1,-2,24));
         setContentView(scroll);
     }
@@ -182,14 +182,14 @@ public class MainActivity extends Activity {
                 }
             }
             StringBuilder b=new StringBuilder("Записей сертификатов: ").append(arr.length()).append("\nУникальных публичных имён: ").append(hosts.size());
-            int shown=0; for(String host:hosts){if(shown++>=30)break;b.append("\n• ").append(host);}
+            for(String host:hosts){b.append("\n• ").append(host);}
             addResult("SSL / SUBDOMAINS",b.toString(),certUrl);
         }catch(Exception e){addResult("SSL / SUBDOMAINS","Ответ сервиса получен, но его не удалось разобрать.",certUrl);}
         else addResult("SSL / SUBDOMAINS","Сервис временно недоступен.",certUrl);
         searchPublicMentions(domain);
         String scanUrl="https://urlscan.io/api/v1/search/?q=domain:"+enc(domain);
         JSONObject scan=getJson(scanUrl);
-        if(scan!=null){JSONArray arr=scan.optJSONArray("results");StringBuilder b=new StringBuilder("Публичных сканов: "+(arr==null?0:arr.length()));if(arr!=null)for(int i=0;i<Math.min(arr.length(),5);i++){JSONObject x=arr.optJSONObject(i);JSONObject page=x.optJSONObject("page");b.append("\n• ").append(page==null?x.optString("_id"):page.optString("url")).append("\n  ").append(x.optString("_id"));}addResult("URLSCAN.IO",""+b,scanUrl);}else addResult("URLSCAN.IO","Публичный поиск сканов недоступен или вернул ошибку.", "https://urlscan.io/search/#domain:"+enc(domain));
+        if(scan!=null){JSONArray arr=scan.optJSONArray("results");StringBuilder b=new StringBuilder("Публичных сканов: "+(arr==null?0:arr.length()));if(arr!=null)for(int i=0;i<arr.length();i++){JSONObject x=arr.optJSONObject(i);JSONObject page=x.optJSONObject("page");b.append("\n• ").append(page==null?x.optString("_id"):page.optString("url")).append("\n  ").append(x.optString("_id"));}addResult("URLSCAN.IO",""+b,scanUrl);}else addResult("URLSCAN.IO","Публичный поиск сканов недоступен или вернул ошибку.", "https://urlscan.io/search/#domain:"+enc(domain));
         inspectWebHeaders(domain);
         completeScan();
     }
@@ -235,7 +235,7 @@ public class MainActivity extends Activity {
         if(html==null){addResult("ПУБЛИЧНЫЕ УПОМИНАНИЯ","Поисковый сервис не ответил. Открой ручной поиск по ссылке.","https://duckduckgo.com/?q="+enc(query));return;}
         java.util.regex.Matcher links=java.util.regex.Pattern.compile("class=\"result__a\"[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>",java.util.regex.Pattern.CASE_INSENSITIVE|java.util.regex.Pattern.DOTALL).matcher(html);
         StringBuilder out=new StringBuilder();int count=0;
-        while(links.find()&&count<8){
+        while(links.find()){
             String href=android.text.Html.fromHtml(links.group(1),android.text.Html.FROM_HTML_MODE_LEGACY).toString();
             String title=android.text.Html.fromHtml(links.group(2),android.text.Html.FROM_HTML_MODE_LEGACY).toString().replaceAll("<[^>]+>","").trim();
             if(!href.isEmpty()){out.append("• ").append(title).append("\n").append(href).append("\n");count++;}
@@ -265,10 +265,14 @@ public class MainActivity extends Activity {
     private void addResult(String heading,String body,String link){ui.post(()->addCard(heading,body,link));}
     private void completeScan(){ui.post(()->status.setText("АНАЛИЗ ЗАВЕРШЁН · ПРОВЕРЬ ИСТОЧНИКИ"));}
     private void addCard(String heading,String body,String link){
+        body=body+"\n\nВремя получения: "+new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss z",java.util.Locale.getDefault()).format(new java.util.Date());
         LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setPadding(dp(15),dp(13),dp(15),dp(13));card.setBackground(round(PANEL,dp(13)));
         TextView h=label(heading,11,CYAN,true);card.addView(h);
         TextView t=label(body,13,Color.WHITE,false);t.setPadding(0,dp(8),0,0);card.addView(t);
-        if(link!=null){TextView l=label("ОТКРЫТЬ ИСТОЧНИК ↗",10,MUTED,true);l.setPadding(0,dp(9),0,0);card.addView(l);card.setOnClickListener(v->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(link)));}catch(Exception ignored){}});}
+        if(link!=null){
+            try { String host=new URL(link).getHost(); TextView source=label("ИСТОЧНИК: "+host,10,MUTED,true);source.setPadding(0,dp(9),0,0);card.addView(source); TextView url=label(link,10,MUTED,false);url.setPadding(0,dp(4),0,0);card.addView(url); } catch(Exception ignored) {}
+            TextView l=label("ОТКРЫТЬ ИСТОЧНИК ↗",10,CYAN,true);l.setPadding(0,dp(9),0,0);card.addView(l);card.setOnClickListener(v->{try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(link)));}catch(Exception ignored){}});
+        } else { TextView local=label("ИСТОЧНИК: локальная проверка приложения",10,MUTED,false);local.setPadding(0,dp(9),0,0);card.addView(local); }
         results.addView(card,params(-1,-2,9));
     }
     private TextView label(String s,int size,int color,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(color);if(bold)t.setTypeface(null,Typeface.BOLD);return t;}
