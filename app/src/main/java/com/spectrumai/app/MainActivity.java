@@ -21,10 +21,12 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import com.google.i18n.phonenumbers.PhoneNumberUtil;
+import com.google.i18n.phonenumbers.Phonenumber;
 
 public class MainActivity extends Activity {
     private final int BG=0xff080d18, PANEL=0xff111c2e, PANEL2=0xff17253b, CYAN=0xff43d9ff, MUTED=0xff9aabc4;
-    private LinearLayout root, results, modeRow;
+    private LinearLayout root, results, modeRow, modeRow2;
     private EditText input;
     private TextView status;
     private String mode="DOMAIN";
@@ -46,7 +48,9 @@ public class MainActivity extends Activity {
         TextView intro=label("Техническая разведка по открытым источникам",13,MUTED,false); LinearLayout.LayoutParams ip=params(-1,-2,16); root.addView(intro,ip);
         TextView sec=label("Выбери тип проверки",14,Color.WHITE,true); root.addView(sec,params(-1,-2,22));
         modeRow=new LinearLayout(this); modeRow.setOrientation(0); root.addView(modeRow,params(-1,-2,10));
-        addMode("ДОМЕН","DOMAIN"); addMode("IP-АДРЕС","IP"); addMode("URL","URL");
+        addMode("ДОМЕН","DOMAIN",modeRow); addMode("IP-АДРЕС","IP",modeRow); addMode("URL","URL",modeRow);
+        modeRow2=new LinearLayout(this); modeRow2.setOrientation(0); root.addView(modeRow2,params(-1,-2,6));
+        addMode("ТЕЛЕФОН","PHONE",modeRow2); addMode("EMAIL","EMAIL",modeRow2); addMode("TELEGRAM","TELEGRAM",modeRow2);
         input=new EditText(this); input.setSingleLine(true); input.setTextColor(Color.WHITE); input.setHintTextColor(0xff71839e);
         input.setTextSize(15); input.setPadding(dp(15),0,dp(15),0); input.setHint("example.com");
         input.setBackground(round(PANEL2,dp(13))); root.addView(input,params(-1,dp(54),14));
@@ -54,22 +58,27 @@ public class MainActivity extends Activity {
         run.setOnClickListener(v->startScan());
         status=label("ГОТОВ К ПРОВЕРКЕ",11,CYAN,true); root.addView(status,params(-1,-2,18));
         results=new LinearLayout(this); results.setOrientation(1); root.addView(results,params(-1,-2,10));
-        TextView footer=label("Источники: Google DNS · RDAP · crt.sh · ipwho.is · urlscan.io\nДанные публичных технических реестров. Результаты могут быть неполными.",11,MUTED,false);
+        TextView footer=label("Источники: RDAP · Google DNS · crt.sh · ipwho.is · urlscan.io\nТелефон проверяется локально, Telegram — только публичная ссылка.",11,MUTED,false);
         root.addView(footer,params(-1,-2,24));
         setContentView(scroll);
     }
 
-    private void addMode(String text,String value) {
-        TextView t=label(text,11, value.equals(mode)?BG: MUTED,true); t.setGravity(Gravity.CENTER);
-        t.setPadding(dp(8),dp(13),dp(8),dp(13)); t.setBackground(round(value.equals(mode)?CYAN:PANEL,dp(10)));
-        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1); p.setMargins(dp(3),0,dp(3),0); modeRow.addView(t,p);
-        t.setOnClickListener(v->{mode=value; for(int i=0;i<modeRow.getChildCount();i++){TextView x=(TextView)modeRow.getChildAt(i); boolean selected=(i==0&&mode.equals("DOMAIN"))||(i==1&&mode.equals("IP"))||(i==2&&mode.equals("URL")); x.setBackground(round(selected?CYAN:PANEL,dp(10))); x.setTextColor(selected?BG:MUTED);} input.setHint(mode.equals("IP")?"8.8.8.8":mode.equals("URL")?"https://example.com/path":"example.com");});
+    private void addMode(String text,String value,LinearLayout row) {
+        TextView t=label(text,11,value.equals(mode)?BG:MUTED,true); t.setGravity(Gravity.CENTER); t.setTag(value);
+        t.setPadding(dp(6),dp(13),dp(6),dp(13)); t.setBackground(round(value.equals(mode)?CYAN:PANEL,dp(10)));
+        LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1); p.setMargins(dp(3),0,dp(3),0); row.addView(t,p);
+        t.setOnClickListener(v->{mode=value; refreshModes(); input.setError(null); input.setHint(modeHint());});
     }
+    private String modeHint(){switch(mode){case "IP":return "8.8.8.8";case "URL":return "https://example.com/path";case "PHONE":return "+358...";case "EMAIL":return "you@example.com";case "TELEGRAM":return "@username";default:return "example.com";}}
+    private void refreshModes(){for(LinearLayout row:new LinearLayout[]{modeRow,modeRow2})for(int i=0;i<row.getChildCount();i++){TextView x=(TextView)row.getChildAt(i);boolean selected=mode.equals(x.getTag());x.setBackground(round(selected?CYAN:PANEL,dp(10)));x.setTextColor(selected?BG:MUTED);}}
 
     private void startScan() {
         String raw=input.getText().toString().trim();
-        if(raw.isEmpty()){input.setError("Введи домен, IP или URL");return;}
+        if(raw.isEmpty()){input.setError("Введи значение для проверки");return;}
         String target=raw;
+        if(mode.equals("PHONE")){checkPhone(raw);return;}
+        if(mode.equals("EMAIL")){checkEmail(raw);return;}
+        if(mode.equals("TELEGRAM")){checkTelegram(raw);return;}
         if(mode.equals("URL")) { try { if(!raw.startsWith("http")) raw="https://"+raw; target=new URL(raw).getHost(); if(target.isEmpty()) throw new Exception(); } catch(Exception e){input.setError("Проверь URL");return;} }
         if(mode.equals("DOMAIN")) { target=target.replaceFirst("^https?://","").split("/")[0].split(":")[0]; if(!target.matches("(?i)[a-z0-9.-]+\\.[a-z]{2,}")){input.setError("Введи корректный домен");return;} }
         if(mode.equals("IP") && !target.matches("[0-9a-fA-F:.]+")){input.setError("Введи IPv4 или IPv6");return;}
@@ -79,6 +88,43 @@ public class MainActivity extends Activity {
         worker.execute(()->{
             if(mode.equals("IP")) scanIp(q); else scanDomain(q, original);
         });
+    }
+
+
+    private void checkPhone(String raw){
+        try{
+            PhoneNumberUtil util=PhoneNumberUtil.getInstance();
+            Phonenumber.PhoneNumber n=util.parse(raw,"ZZ");
+            if(!util.isValidNumber(n)){input.setError("Номер не прошёл проверку формата");return;}
+            String region=util.getRegionCodeForNumber(n);
+            String type=util.getNumberType(n).toString();
+            results.removeAllViews(); status.setText("ЛОКАЛЬНАЯ ПРОВЕРКА НОМЕРА");
+            addCard("НОРМАЛИЗОВАННЫЙ НОМЕР",util.format(n,PhoneNumberUtil.PhoneNumberFormat.INTERNATIONAL),"https://www.itu.int/");
+            addCard("МЕТАДАННЫЕ ФОРМАТА","Регион телефонного плана: "+region+"\nТип диапазона: "+type+"\nФормат: корректный",null);
+            addCard("ВАЖНО","Эти сведения не устанавливают владельца номера, его адрес или аккаунты. Поиск частных лиц по номеру не выполняется.",null);
+            status.setText("ПРОВЕРКА ЗАВЕРШЕНА");
+        }catch(Exception e){input.setError("Укажи номер с кодом страны, например +358...");}
+    }
+    private void checkEmail(String raw){
+        if(!android.util.Patterns.EMAIL_ADDRESS.matcher(raw).matches()){input.setError("Проверь формат email");return;}
+        String domain=raw.substring(raw.lastIndexOf("@")+1).toLowerCase();
+        results.removeAllViews();status.setText("ПРОВЕРКА EMAIL-ДОМЕНА");addCard("АДРЕС",raw,null);
+        worker.execute(()->{
+            JSONObject mx=getJson("https://dns.google/resolve?name="+enc(domain)+"&type=MX");
+            StringBuilder b=new StringBuilder();
+            if(mx!=null){JSONArray a=mx.optJSONArray("Answer");if(a!=null)for(int i=0;i<a.length();i++)b.append(a.optJSONObject(i).optString("data")).append("\n");}
+            addResult("ПОЧТОВЫЙ ДОМЕН / MX",b.length()==0?"MX-записи не найдены или сервис не ответил.":b.toString(),"https://dns.google/resolve?name="+enc(domain)+"&type=MX");
+            addResult("ПРИВАТНОСТЬ","Проверяется только домен почты. Пароли, закрытые утечки и личность владельца не проверяются.",null);
+            completeScan();
+        });
+    }
+    private void checkTelegram(String raw){
+        String u=raw.trim();if(u.startsWith("https://t.me/"))u=u.substring(13);if(u.startsWith("@"))u=u.substring(1);
+        if(!u.matches("[A-Za-z0-9_]{5,32}")){input.setError("Нужен публичный Telegram username");return;}
+        String link="https://t.me/"+u;results.removeAllViews();status.setText("ПУБЛИЧНЫЙ ПРОФИЛЬ");
+        addCard("TELEGRAM USERNAME","@"+u+"\nСформирована ссылка на публичный профиль или канал. Скрытые данные не извлекаются.",link);
+        addCard("ПРОВЕРКА","Проверь публичный аккаунт самостоятельно. Username может измениться или принадлежать другому пользователю.",null);
+        status.setText("ССЫЛКА ГОТОВА");
     }
 
     private void scanDomain(String domain,String original) {
