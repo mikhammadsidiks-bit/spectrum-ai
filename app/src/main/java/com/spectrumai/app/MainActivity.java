@@ -29,7 +29,7 @@ public class MainActivity extends Activity {
     private LinearLayout root, results, modeRow, modeRow2;
     private EditText input;
     private TextView status;
-    private String mode="DOMAIN";
+    private String mode="AUTO";
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private final Handler ui=new Handler(Looper.getMainLooper());
 
@@ -48,9 +48,9 @@ public class MainActivity extends Activity {
         TextView intro=label("Техническая разведка по открытым источникам",13,MUTED,false); LinearLayout.LayoutParams ip=params(-1,-2,16); root.addView(intro,ip);
         TextView sec=label("Выбери тип проверки",14,Color.WHITE,true); root.addView(sec,params(-1,-2,22));
         modeRow=new LinearLayout(this); modeRow.setOrientation(0); root.addView(modeRow,params(-1,-2,10));
-        addMode("ДОМЕН","DOMAIN",modeRow); addMode("IP-АДРЕС","IP",modeRow); addMode("URL","URL",modeRow);
+        addMode("АВТО","AUTO",modeRow); addMode("ДОМЕН","DOMAIN",modeRow); addMode("IP","IP",modeRow);
         modeRow2=new LinearLayout(this); modeRow2.setOrientation(0); root.addView(modeRow2,params(-1,-2,6));
-        addMode("ТЕЛЕФОН","PHONE",modeRow2); addMode("EMAIL","EMAIL",modeRow2); addMode("TELEGRAM","TELEGRAM",modeRow2);
+        addMode("URL","URL",modeRow2); addMode("ТЕЛЕФОН","PHONE",modeRow2); addMode("EMAIL","EMAIL",modeRow2); addMode("TELEGRAM","TELEGRAM",modeRow2);
         input=new EditText(this); input.setSingleLine(true); input.setTextColor(Color.WHITE); input.setHintTextColor(0xff71839e);
         input.setTextSize(15); input.setPadding(dp(15),0,dp(15),0); input.setHint("example.com");
         input.setBackground(round(PANEL2,dp(13))); root.addView(input,params(-1,dp(54),14));
@@ -69,12 +69,23 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1); p.setMargins(dp(3),0,dp(3),0); row.addView(t,p);
         t.setOnClickListener(v->{mode=value; refreshModes(); input.setError(null); input.setHint(modeHint());});
     }
-    private String modeHint(){switch(mode){case "IP":return "8.8.8.8";case "URL":return "https://example.com/path";case "PHONE":return "+358...";case "EMAIL":return "you@example.com";case "TELEGRAM":return "@username";default:return "example.com";}}
+    private String modeHint(){switch(mode){case "AUTO":return "Номер, @username, email, IP, URL или домен";case "IP":return "8.8.8.8";case "URL":return "https://example.com/path";case "PHONE":return "+358...";case "EMAIL":return "you@example.com";case "TELEGRAM":return "@username";default:return "example.com";}}
     private void refreshModes(){for(LinearLayout row:new LinearLayout[]{modeRow,modeRow2})for(int i=0;i<row.getChildCount();i++){TextView x=(TextView)row.getChildAt(i);boolean selected=mode.equals(x.getTag());x.setBackground(round(selected?CYAN:PANEL,dp(10)));x.setTextColor(selected?BG:MUTED);}}
 
     private void startScan() {
         String raw=input.getText().toString().trim();
         if(raw.isEmpty()){input.setError("Введи значение для проверки");return;}
+        if(mode.equals("AUTO")) {
+            String low=raw.toLowerCase();
+            if(low.startsWith("@")||low.startsWith("https://t.me/")) mode="TELEGRAM";
+            else if(android.util.Patterns.EMAIL_ADDRESS.matcher(raw).matches()) mode="EMAIL";
+            else if(raw.matches("^\\+?[0-9() .-]{7,}$")) mode="PHONE";
+            else if(raw.matches("(?i)^[0-9a-f:.]{3,}$") && raw.contains(":")) mode="IP";
+            else if(low.startsWith("http://")||low.startsWith("https://")) mode="URL";
+            else if(raw.matches("(?i)^[a-z0-9.-]+\\.[a-z]{2,}(/.*)?$")) mode="DOMAIN";
+            else {input.setError("Не удалось определить тип. Выбери модуль вручную.");return;}
+            refreshModes();
+        }
         String target=raw;
         if(mode.equals("PHONE")){checkPhone(raw);return;}
         if(mode.equals("EMAIL")){checkEmail(raw);return;}
